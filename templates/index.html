@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProposalAI — Generate Premium Proposals</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body>
+    <nav>
+        <div class="logo-container">
+            <div class="logo-box" style="background: var(--accent-primary); color: white;">P</div>
+            <span class="logo-text">Proposal<span class="gradient-text">AI</span></span>
+        </div>
+       
+    </nav>
+
+    <main>
+        <div class="hero-section">
+            <h1>Elite <span class="gradient-text">Proposals</span> <br/>In Seconds.</h1>
+        </div>
+
+        <div class="form-container">
+            <form id="proposalForm">
+                <div class="form-group">
+                    <label>Upwork Requirements / Job Description</label>
+                    <textarea 
+                        name="requirements" 
+                        required 
+                        placeholder="Paste the job description or requirements here..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>GitHub Context URL</label>
+                    <input 
+                        type="url" 
+                        name="github_url" 
+                        required 
+                        placeholder="https://github.com/alihassanml/repo">
+                </div>
+
+                <button type="submit" class="generate-btn" id="submitBtn">
+                    <span id="btnText">Generate Premium PDF</span>
+                    <div class="loader" id="loader"></div>
+                    <svg class="btn-icon" id="btnIcon" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
+                    </svg>
+                </button>
+            </form>
+        </div>
+
+        <!-- PDF Preview Section -->
+        <div id="previewSection" class="preview-section">
+            <div class="preview-header">
+                <h2 class="preview-title">Proposal Preview</h2>
+                <a id="downloadBtn" href="#" class="download-btn" download="proposal.pdf">
+                    <span>Download PDF</span>
+                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                    </svg>
+                </a>
+            </div>
+            <iframe id="pdfPreview" class="preview-frame"></iframe>
+        </div>
+    </main>
+
+    <script>
+        const form = document.getElementById('proposalForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const btnText = document.getElementById('btnText');
+        const btnIcon = document.getElementById('btnIcon');
+        const loader = document.getElementById('loader');
+        const previewSection = document.getElementById('previewSection');
+        const pdfPreview = document.getElementById('pdfPreview');
+        const downloadBtn = document.getElementById('downloadBtn');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            // UI Loading State
+            submitBtn.disabled = true;
+            btnText.textContent = 'Generating...';
+            btnIcon.style.display = 'none';
+            loader.style.display = 'block';
+            previewSection.style.display = 'none';
+
+            const formData = new FormData(form);
+            
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) throw new Error('Generation failed');
+
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+
+                // Update Preview
+                pdfPreview.src = url;
+                downloadBtn.href = url;
+                previewSection.style.display = 'block';
+                
+                // Scroll to preview
+                previewSection.scrollIntoView({ behavior: 'smooth' });
+
+            } catch (error) {
+                alert('Error: ' + error.message);
+            } finally {
+                submitBtn.disabled = false;
+                btnText.textContent = 'Generate Premium PDF';
+                btnIcon.style.display = 'block';
+                loader.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
