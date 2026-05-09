@@ -37,6 +37,18 @@ export default function ProposalPage() {
   const [isRendering, setIsRendering]       = useState(false);
   const [error, setError]                   = useState('');
 
+  const saveHistory = async (content: any, template: string) => {
+    try {
+      const templateNames: Record<string, string> = { '1': 'Dark Executive', '2': 'Corporate Pro', '3': 'Bold Slate' };
+      await axios.post(`${API_BASE_URL}/history`, {
+        type: 'proposal',
+        title: content.title || 'Untitled Proposal',
+        summary: `${templateNames[template] || 'Template ' + template} · ${timelineValue} ${timelineUnit}`,
+        data: JSON.stringify({ requirements, template, timeline: `${timelineValue} ${timelineUnit}`, content }),
+      }, { headers: { Authorization: `Bearer ${token}` } });
+    } catch { /* non-critical */ }
+  };
+
   const handleGenerate = async (e: { preventDefault(): void }) => {
     e.preventDefault();
     setLoading(true);
@@ -54,6 +66,7 @@ export default function ProposalPage() {
       setBranding(res.data.branding);
       setEditorMode(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
+      saveHistory(res.data.content, selectedTemplate);
     } catch (err: any) {
       setError(err?.response?.data?.detail || 'Failed to generate proposal. Check your API connection.');
     } finally {
@@ -319,6 +332,7 @@ export default function ProposalPage() {
                       <div className="w-3/4 h-0.5 bg-outline-variant/50 rounded" />
                     </div>
                     <button
+                      type="button"
                       onClick={e => { e.stopPropagation(); setPreviewTemplate(t.id); setShowPreview(true); }}
                       className="absolute inset-0 bg-white/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all backdrop-blur-sm"
                     >

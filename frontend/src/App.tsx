@@ -5,6 +5,7 @@ import type { TabId } from './components/Sidebar';
 import DashboardPage from './pages/DashboardPage';
 import ProposalPage from './pages/ProposalPage';
 import MapScraperPage from './pages/MapScraperPage';
+import HistoryPage from './pages/HistoryPage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 
@@ -44,6 +45,7 @@ function AppInner() {
         {activeTab === 'dashboard' && <DashboardPage onNavigate={handleTabChange} />}
         {activeTab === 'proposal'  && <ProposalPage />}
         {activeTab === 'maps'      && <MapScraperPage />}
+        {activeTab === 'history'   && <HistoryPage />}
       </div>
     </div>
   );

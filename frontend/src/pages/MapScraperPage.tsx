@@ -1,22 +1,72 @@
 import React, { useState, useEffect, useRef } from 'react';
+import axios from 'axios';
 import {
   MapPin, Search, Download, LoaderCircle, Globe,
-  Phone, Star, Copy, CheckCheck, ExternalLink, Mail
+  Phone, Star, Copy, CheckCheck, ExternalLink, Mail, Filter, X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '../context/AuthContext';
 
 const API_BASE_URL = 'http://localhost:8000';
 
 interface Business {
-  name:     string;
-  rating:   string;
-  reviews:  string;
-  category: string;
-  address:  string;
-  phone:    string;
-  website:  string;
-  email:    string;
-  maps_url: string;
+  name:      string;
+  rating:    string;
+  reviews:   string;
+  category:  string;
+  address:   string;
+  phone:     string;
+  website:   string;
+  email:     string;
+  facebook:  string;
+  instagram: string;
+  tiktok:    string;
+  twitter:   string;
+  youtube:   string;
+  maps_url:  string;
+}
+
+interface Filters {
+  minRating: string;
+  maxRating: string;
+  hasPhone:  'all' | 'yes' | 'no';
+  hasEmail:  'all' | 'yes' | 'no';
+  hasWebsite:'all' | 'yes' | 'no';
+  hasSocial: 'all' | 'yes' | 'no';
+}
+
+const DEFAULT_FILTERS: Filters = {
+  minRating: '', maxRating: '',
+  hasPhone: 'all', hasEmail: 'all', hasWebsite: 'all', hasSocial: 'all',
+};
+
+function applyFilters(data: Business[], f: Filters): Business[] {
+  return data.filter(r => {
+    const rating = parseFloat(r.rating) || 0;
+    if (f.minRating !== '' && rating < parseFloat(f.minRating)) return false;
+    if (f.maxRating !== '' && rating > parseFloat(f.maxRating)) return false;
+    if (f.hasPhone   === 'yes' && !r.phone)   return false;
+    if (f.hasPhone   === 'no'  &&  r.phone)   return false;
+    if (f.hasEmail   === 'yes' && !r.email)   return false;
+    if (f.hasEmail   === 'no'  &&  r.email)   return false;
+    if (f.hasWebsite === 'yes' && !r.website) return false;
+    if (f.hasWebsite === 'no'  &&  r.website) return false;
+    const hasSocial = !!(r.facebook || r.instagram || r.tiktok || r.twitter || r.youtube);
+    if (f.hasSocial  === 'yes' && !hasSocial) return false;
+    if (f.hasSocial  === 'no'  &&  hasSocial) return false;
+    return true;
+  });
+}
+
+function SocialBadge({ href, label, color }: { href: string; label: string; color: string }) {
+  return (
+    <a href={href} target="_blank" rel="noreferrer"
+      className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${color} hover:opacity-80 transition-opacity`}
+      title={href}
+    >
+      {label}
+    </a>
+  );
 }
 
 function CopyBtn({ text }: { text: string }) {
@@ -34,6 +84,7 @@ function CopyBtn({ text }: { text: string }) {
 }
 
 export default function MapScraperPage() {
+  const { token } = useAuth();
   const [query, setQuery]           = useState('');
   const [maxResults, setMaxResults] = useState(10);
   const [loading, setLoading]       = useState(false);
@@ -41,29 +92,46 @@ export default function MapScraperPage() {
   const [error, setError]           = useState('');
   const [searched, setSearched]     = useState('');
   const [progress, setProgress]     = useState<string[]>([]);
+  const [filters, setFilters]       = useState<Filters>(DEFAULT_FILTERS);
+  const [showFilters, setShowFilters] = useState(false);
   const logEndRef                   = useRef<HTMLDivElement>(null);
   const esRef                       = useRef<EventSource | null>(null);
+  const startTimeRef                = useRef<number>(0);
 
-  // auto-scroll the progress log
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [progress]);
 
-  // cleanup EventSource on unmount
   useEffect(() => () => { esRef.current?.close(); }, []);
+
+  const filtered = applyFilters(results, filters);
+  const isFiltered = JSON.stringify(filters) !== JSON.stringify(DEFAULT_FILTERS);
+
+  const saveHistory = async (results: Business[], query: string, durationSec: number) => {
+    if (!token) return;
+    try {
+      await axios.post(`${API_BASE_URL}/history`, {
+        type: 'maps',
+        title: query,
+        summary: `${results.length} results · ${durationSec}s`,
+        data: JSON.stringify({ query, results, count: results.length, duration_seconds: durationSec }),
+      }, { headers: { Authorization: `Bearer ${token}` } });
+    } catch { /* non-critical */ }
+  };
 
   const handleScrape = (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
 
-    // close any previous stream
     esRef.current?.close();
-
     setLoading(true);
     setError('');
     setResults([]);
     setProgress([]);
+    setFilters(DEFAULT_FILTERS);
+    setShowFilters(false);
     setSearched(query.trim());
+    startTimeRef.current = Date.now();
 
     const url = `${API_BASE_URL}/scrape-maps/stream?query=${encodeURIComponent(query.trim())}&max_results=${maxResults}`;
     const es = new EventSource(url);
@@ -74,10 +142,13 @@ export default function MapScraperPage() {
       if (data.type === 'progress') {
         setProgress(prev => [...prev, data.message]);
       } else if (data.type === 'done') {
-        setResults(data.results || []);
-        if (!(data.results || []).length) setError('No results found. Try a different search query.');
+        const finalResults = data.results || [];
+        const durationSec = Math.round((Date.now() - startTimeRef.current) / 1000);
+        setResults(finalResults);
+        if (!finalResults.length) setError('No results found. Try a different search query.');
         setLoading(false);
         es.close();
+        saveHistory(finalResults, query.trim(), durationSec);
       } else if (data.type === 'error' || data.type === 'timeout') {
         setError(data.message || 'Scraping timed out. Please try again.');
         setLoading(false);
@@ -93,10 +164,11 @@ export default function MapScraperPage() {
   };
 
   const exportCSV = () => {
-    const headers = ['#', 'Name', 'Rating', 'Reviews', 'Category', 'Address', 'Phone', 'Email', 'Website', 'Google Maps URL'];
-    const rows = results.map((r, i) => [
+    const headers = ['#', 'Name', 'Rating', 'Reviews', 'Category', 'Address', 'Phone', 'Email', 'Website', 'Facebook', 'Instagram', 'TikTok', 'Twitter/X', 'YouTube', 'Google Maps URL'];
+    const rows = filtered.map((r, i) => [
       i + 1, r.name, r.rating, r.reviews, r.category,
-      r.address, r.phone, r.email, r.website, r.maps_url
+      r.address, r.phone, r.email, r.website,
+      r.facebook, r.instagram, r.tiktok, r.twitter, r.youtube, r.maps_url,
     ]);
     const csv = [headers, ...rows]
       .map(row => row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
@@ -110,6 +182,23 @@ export default function MapScraperPage() {
     URL.revokeObjectURL(url);
   };
 
+  const ToggleFilter = ({ label, field }: { label: string; field: keyof Filters }) => (
+    <div className="flex flex-col gap-1">
+      <span className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">{label}</span>
+      <div className="flex gap-1">
+        {(['all', 'yes', 'no'] as const).map(v => (
+          <button key={v} onClick={() => setFilters(f => ({ ...f, [field]: v }))}
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+              filters[field] === v
+                ? 'bg-secondary text-white'
+                : 'bg-surface-container border border-outline-variant text-on-surface-variant hover:border-secondary/40'
+            }`}
+          >{v === 'all' ? 'All' : v === 'yes' ? 'Yes' : 'No'}</button>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-background">
       <div className="px-8 pt-8 pb-16">
@@ -120,31 +209,23 @@ export default function MapScraperPage() {
             <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-sm">
               <MapPin size={18} className="text-white" />
             </div>
-            <div>
-              <h1 className="text-2xl font-bold text-on-surface">
-                Google Maps <span className="text-secondary">Scraper</span>
-              </h1>
-            </div>
+            <h1 className="text-2xl font-bold text-on-surface">
+              Google Maps <span className="text-secondary">Scraper</span>
+            </h1>
           </div>
           <p className="text-sm text-on-surface-variant ml-[52px]">
-            Extract business name, phone, website, address, and ratings. Export to CSV instantly.
+            Extract business name, phone, website, address, socials and ratings. Export to CSV instantly.
           </p>
         </motion.div>
 
         {/* Search form */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05 }}
-          className="card border border-outline-variant rounded-2xl p-5 mb-6"
-        >
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}
+          className="card border border-outline-variant rounded-2xl p-5 mb-6">
           <form onSubmit={handleScrape} className="flex flex-col md:flex-row gap-3">
             <div className="flex-1 relative">
               <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-outline" />
               <input
-                type="text"
-                value={query}
-                onChange={e => setQuery(e.target.value)}
+                type="text" value={query} onChange={e => setQuery(e.target.value)}
                 placeholder='e.g. "plumbers in Chicago" or "restaurants near Times Square"'
                 required
                 className="w-full border border-outline-variant rounded-xl pl-10 pr-4 py-3 text-sm text-on-surface bg-white placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-secondary/20 focus:border-secondary transition-all"
@@ -154,19 +235,14 @@ export default function MapScraperPage() {
               <div className="flex items-center gap-2 border border-outline-variant rounded-xl px-3 py-3 bg-white focus-within:border-secondary transition-colors">
                 <span className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider whitespace-nowrap">Max</span>
                 <input
-                  type="number"
-                  value={maxResults}
+                  type="number" value={maxResults}
                   onChange={e => setMaxResults(Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
-                  min={1}
-                  max={100}
+                  min={1} max={100}
                   className="w-14 bg-transparent text-on-surface font-semibold text-sm focus:outline-none text-center"
                 />
               </div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex items-center gap-2 px-5 py-3 bg-primary hover:opacity-90 text-white rounded-xl text-sm font-semibold transition-opacity shadow-sm active:scale-95 disabled:opacity-50 whitespace-nowrap"
-              >
+              <button type="submit" disabled={loading}
+                className="flex items-center gap-2 px-5 py-3 bg-primary hover:opacity-90 text-white rounded-xl text-sm font-semibold transition-opacity shadow-sm active:scale-95 disabled:opacity-50 whitespace-nowrap">
                 {loading ? <LoaderCircle className="animate-spin" size={16} /> : <MapPin size={16} />}
                 {loading ? 'Scraping…' : 'Scrape'}
               </button>
@@ -176,26 +252,14 @@ export default function MapScraperPage() {
           {/* Live progress log */}
           <AnimatePresence>
             {loading && progress.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="mt-4 overflow-hidden"
-              >
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mt-4 overflow-hidden">
                 <div className="bg-surface-container-low border border-outline-variant/60 rounded-xl p-3 max-h-48 overflow-y-auto">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-outline mb-2">Live Progress</p>
                   {progress.map((msg, i) => (
-                    <motion.div
-                      key={i}
-                      initial={{ opacity: 0, x: -6 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      className="flex items-start gap-2 py-0.5"
-                    >
-                      {i === progress.length - 1 ? (
-                        <LoaderCircle size={11} className="text-secondary animate-spin shrink-0 mt-0.5" />
-                      ) : (
-                        <span className="text-secondary shrink-0 mt-0.5 text-[10px]">✓</span>
-                      )}
+                    <motion.div key={i} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} className="flex items-start gap-2 py-0.5">
+                      {i === progress.length - 1
+                        ? <LoaderCircle size={11} className="text-secondary animate-spin shrink-0 mt-0.5" />
+                        : <span className="text-secondary shrink-0 mt-0.5 text-[10px]">✓</span>}
                       <span className="text-xs text-on-surface-variant font-mono">{msg}</span>
                     </motion.div>
                   ))}
@@ -209,10 +273,8 @@ export default function MapScraperPage() {
         {/* Error */}
         <AnimatePresence>
           {error && (
-            <motion.div
-              initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-              className="mb-5 px-4 py-3 bg-error-container border border-error/20 rounded-xl text-sm text-on-error-container font-medium"
-            >
+            <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              className="mb-5 px-4 py-3 bg-error-container border border-error/20 rounded-xl text-sm text-on-error-container font-medium">
               {error}
             </motion.div>
           )}
@@ -222,23 +284,78 @@ export default function MapScraperPage() {
         <AnimatePresence>
           {results.length > 0 && (
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
-              {/* Stats bar */}
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-bold text-on-surface">{results.length} businesses found</span>
+
+              {/* Stats + toolbar */}
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-bold text-on-surface">
+                    {isFiltered ? `${filtered.length} / ${results.length}` : results.length} businesses
+                  </span>
                   <span className="text-xs text-on-surface-variant">for "{searched}"</span>
                   <span className="text-[10px] font-bold bg-secondary/10 text-secondary border border-secondary/20 px-2 py-0.5 rounded-full">
-                    {results.filter(r => r.phone).length} with phone · {results.filter(r => r.email).length} with email · {results.filter(r => r.website).length} with website
+                    {results.filter(r => r.phone).length} phone · {results.filter(r => r.email).length} email · {results.filter(r => r.website).length} website · {results.filter(r => r.facebook || r.instagram || r.tiktok || r.twitter || r.youtube).length} social
                   </span>
                 </div>
-                <button
-                  onClick={exportCSV}
-                  className="flex items-center gap-2 px-3 py-2 border border-outline-variant bg-white hover:bg-surface-container-low text-on-surface rounded-xl text-xs font-semibold transition-colors"
-                >
-                  <Download size={13} />
-                  Export CSV
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setShowFilters(v => !v)}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-colors border ${
+                      isFiltered
+                        ? 'bg-secondary text-white border-secondary'
+                        : 'border-outline-variant bg-white text-on-surface hover:bg-surface-container-low'
+                    }`}>
+                    <Filter size={12} />
+                    Filter {isFiltered && `(${results.length - filtered.length} hidden)`}
+                  </button>
+                  <button onClick={exportCSV}
+                    className="flex items-center gap-2 px-3 py-2 border border-outline-variant bg-white hover:bg-surface-container-low text-on-surface rounded-xl text-xs font-semibold transition-colors">
+                    <Download size={13} />
+                    Export CSV {isFiltered && `(${filtered.length})`}
+                  </button>
+                </div>
               </div>
+
+              {/* Filter panel */}
+              <AnimatePresence>
+                {showFilters && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden mb-3">
+                    <div className="card border border-outline-variant rounded-2xl p-4 bg-white">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">Filters</span>
+                        {isFiltered && (
+                          <button onClick={() => setFilters(DEFAULT_FILTERS)}
+                            className="flex items-center gap-1 text-[11px] text-error hover:underline font-semibold">
+                            <X size={11} /> Reset all
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-5">
+                        {/* Rating range */}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">Rating</span>
+                          <div className="flex items-center gap-2">
+                            <input type="number" placeholder="Min" min="0" max="5" step="0.1"
+                              value={filters.minRating}
+                              onChange={e => setFilters(f => ({ ...f, minRating: e.target.value }))}
+                              className="w-16 border border-outline-variant rounded-lg px-2 py-1.5 text-xs text-on-surface bg-white focus:outline-none focus:border-secondary text-center"
+                            />
+                            <span className="text-xs text-outline">–</span>
+                            <input type="number" placeholder="Max" min="0" max="5" step="0.1"
+                              value={filters.maxRating}
+                              onChange={e => setFilters(f => ({ ...f, maxRating: e.target.value }))}
+                              className="w-16 border border-outline-variant rounded-lg px-2 py-1.5 text-xs text-on-surface bg-white focus:outline-none focus:border-secondary text-center"
+                            />
+                          </div>
+                        </div>
+                        <ToggleFilter label="Has Phone"   field="hasPhone" />
+                        <ToggleFilter label="Has Email"   field="hasEmail" />
+                        <ToggleFilter label="Has Website" field="hasWebsite" />
+                        <ToggleFilter label="Has Social"  field="hasSocial" />
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Table */}
               <div className="card border border-outline-variant rounded-2xl overflow-hidden">
@@ -246,25 +363,23 @@ export default function MapScraperPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-outline-variant bg-surface-container-low">
-                        <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant w-8">#</th>
-                        <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant min-w-[180px]">Business Name</th>
-                        <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Rating</th>
-                        <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Category</th>
-                        <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant min-w-[180px]">Address</th>
-                        <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Phone</th>
-                        <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Email</th>
-                        <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Website</th>
+                        {['#','Business Name','Rating','Category','Address','Phone','Email','Website','Socials'].map(h => (
+                          <th key={h} className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant whitespace-nowrap">
+                            {h === 'Business Name' ? <span className="min-w-[180px] block">{h}</span> : h}
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {results.map((r, i) => (
-                        <motion.tr
-                          key={i}
-                          initial={{ opacity: 0, x: -6 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: i * 0.025 }}
-                          className="border-b border-outline-variant/50 hover:bg-surface-container-low transition-colors"
-                        >
+                      {filtered.length === 0 ? (
+                        <tr>
+                          <td colSpan={9} className="text-center py-10 text-sm text-on-surface-variant">
+                            No results match the current filters.
+                          </td>
+                        </tr>
+                      ) : filtered.map((r, i) => (
+                        <motion.tr key={i} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.02 }}
+                          className="border-b border-outline-variant/50 hover:bg-surface-container-low transition-colors">
                           <td className="px-4 py-3 text-on-surface-variant text-xs font-bold">{i + 1}</td>
                           <td className="px-4 py-3">
                             <a href={r.maps_url} target="_blank" rel="noreferrer"
@@ -274,57 +389,40 @@ export default function MapScraperPage() {
                             </a>
                           </td>
                           <td className="px-4 py-3">
-                            {r.rating ? (
-                              <div className="flex items-center gap-1">
-                                <Star size={11} className="text-amber-500 fill-amber-500 shrink-0" />
-                                <span className="font-bold text-amber-600 text-xs">{r.rating}</span>
-                                {r.reviews && <span className="text-on-surface-variant text-[11px]">({r.reviews})</span>}
-                              </div>
-                            ) : <span className="text-outline text-xs">—</span>}
+                            {r.rating
+                              ? <div className="flex items-center gap-1"><Star size={11} className="text-amber-500 fill-amber-500 shrink-0" /><span className="font-bold text-amber-600 text-xs">{r.rating}</span>{r.reviews && <span className="text-on-surface-variant text-[11px]">({r.reviews})</span>}</div>
+                              : <span className="text-outline text-xs">—</span>}
                           </td>
                           <td className="px-4 py-3">
-                            <span className="text-xs text-on-surface-variant bg-surface-container border border-outline-variant/60 px-2 py-0.5 rounded font-medium">
-                              {r.category || '—'}
-                            </span>
+                            <span className="text-xs text-on-surface-variant bg-surface-container border border-outline-variant/60 px-2 py-0.5 rounded font-medium">{r.category || '—'}</span>
                           </td>
                           <td className="px-4 py-3 text-xs text-on-surface-variant max-w-[200px]">
-                            <div className="flex items-start gap-1">
-                              <span className="line-clamp-2">{r.address || '—'}</span>
-                              <CopyBtn text={r.address} />
+                            <div className="flex items-start gap-1"><span className="line-clamp-2">{r.address || '—'}</span><CopyBtn text={r.address} /></div>
+                          </td>
+                          <td className="px-4 py-3">
+                            {r.phone
+                              ? <div className="flex items-center gap-1"><a href={`tel:${r.phone}`} className="text-xs text-secondary font-medium hover:underline flex items-center gap-1"><Phone size={10} className="shrink-0" />{r.phone}</a><CopyBtn text={r.phone} /></div>
+                              : <span className="text-outline text-xs">—</span>}
+                          </td>
+                          <td className="px-4 py-3">
+                            {r.email
+                              ? <div className="flex items-center gap-1"><a href={`mailto:${r.email}`} className="text-xs text-primary font-medium hover:text-secondary flex items-center gap-1 max-w-[160px] truncate"><Mail size={10} className="shrink-0" /><span className="truncate">{r.email}</span></a><CopyBtn text={r.email} /></div>
+                              : <span className="text-outline text-xs">—</span>}
+                          </td>
+                          <td className="px-4 py-3">
+                            {r.website
+                              ? <div className="flex items-center gap-1"><a href={r.website} target="_blank" rel="noreferrer" className="text-xs text-primary font-medium hover:text-secondary flex items-center gap-1 max-w-[140px] truncate"><Globe size={10} className="shrink-0" /><span className="truncate">{r.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}</span></a><CopyBtn text={r.website} /></div>
+                              : <span className="text-outline text-xs">—</span>}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap gap-1">
+                              {r.facebook  && <SocialBadge href={r.facebook}  label="FB" color="bg-blue-100 text-blue-700" />}
+                              {r.instagram && <SocialBadge href={r.instagram} label="IG" color="bg-pink-100 text-pink-700" />}
+                              {r.tiktok    && <SocialBadge href={r.tiktok}    label="TT" color="bg-slate-100 text-slate-700" />}
+                              {r.twitter   && <SocialBadge href={r.twitter}   label="X"  color="bg-sky-100 text-sky-700" />}
+                              {r.youtube   && <SocialBadge href={r.youtube}   label="YT" color="bg-red-100 text-red-700" />}
+                              {!r.facebook && !r.instagram && !r.tiktok && !r.twitter && !r.youtube && <span className="text-outline text-xs">—</span>}
                             </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            {r.phone ? (
-                              <div className="flex items-center gap-1">
-                                <a href={`tel:${r.phone}`} className="text-xs text-secondary font-medium hover:underline flex items-center gap-1 transition-colors">
-                                  <Phone size={10} className="shrink-0" />{r.phone}
-                                </a>
-                                <CopyBtn text={r.phone} />
-                              </div>
-                            ) : <span className="text-outline text-xs">—</span>}
-                          </td>
-                          <td className="px-4 py-3">
-                            {r.email ? (
-                              <div className="flex items-center gap-1">
-                                <a href={`mailto:${r.email}`} className="text-xs text-primary font-medium hover:text-secondary flex items-center gap-1 transition-colors max-w-[160px] truncate">
-                                  <Mail size={10} className="shrink-0" />
-                                  <span className="truncate">{r.email}</span>
-                                </a>
-                                <CopyBtn text={r.email} />
-                              </div>
-                            ) : <span className="text-outline text-xs">—</span>}
-                          </td>
-                          <td className="px-4 py-3">
-                            {r.website ? (
-                              <div className="flex items-center gap-1">
-                                <a href={r.website} target="_blank" rel="noreferrer"
-                                  className="text-xs text-primary font-medium hover:text-secondary flex items-center gap-1 transition-colors max-w-[140px] truncate">
-                                  <Globe size={10} className="shrink-0" />
-                                  <span className="truncate">{r.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}</span>
-                                </a>
-                                <CopyBtn text={r.website} />
-                              </div>
-                            ) : <span className="text-outline text-xs">—</span>}
                           </td>
                         </motion.tr>
                       ))}
@@ -348,7 +446,6 @@ export default function MapScraperPage() {
             </p>
           </motion.div>
         )}
-
       </div>
     </div>
   );

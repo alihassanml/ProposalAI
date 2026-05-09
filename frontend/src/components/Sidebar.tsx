@@ -1,20 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, MapPin, LayoutDashboard, ChevronUp, Eye, EyeOff, LogOut } from 'lucide-react';
+import { FileText, MapPin, LayoutDashboard, ChevronUp, Eye, EyeOff, LogOut, Clock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-export type TabId = 'dashboard' | 'proposal' | 'maps';
+export type TabId = 'dashboard' | 'proposal' | 'maps' | 'history';
 
 interface NavItem {
   id: TabId;
   label: string;
   icon: React.ElementType;
-  badge?: string;
 }
 
 const NAV: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard',          icon: LayoutDashboard },
   { id: 'proposal',  label: 'Upwork Proposal',    icon: FileText },
   { id: 'maps',      label: 'Google Map Scraper', icon: MapPin },
+  { id: 'history',   label: 'History',            icon: Clock },
 ];
 
 interface SidebarProps {
@@ -78,7 +78,7 @@ export default function Sidebar({ active, onChange }: SidebarProps) {
 
       {/* Nav */}
       <nav className="px-3 space-y-0.5 flex-1">
-        {NAV.map(({ id, label, icon: Icon, badge }) => {
+        {NAV.map(({ id, label, icon: Icon }) => {
           const isActive = active === id;
           return (
             <button
@@ -92,11 +92,6 @@ export default function Sidebar({ active, onChange }: SidebarProps) {
             >
               <Icon size={17} className={isActive ? 'text-secondary' : ''} />
               <span className="flex-1 text-left">{label}</span>
-              {badge && (
-                <span className="text-[9px] font-bold bg-secondary/15 text-secondary px-1.5 py-0.5 rounded">
-                  {badge}
-                </span>
-              )}
             </button>
           );
         })}
