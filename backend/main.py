@@ -1,24 +1,29 @@
 import os
 import json
 import asyncio
+import threading
 import concurrent.futures
 from datetime import datetime
 
-from fastapi import FastAPI, Request, Form, HTTPException, Response
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request, Form, HTTPException, Response, Depends, Header, Query
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from dotenv import load_dotenv
+from pydantic import BaseModel
 import openai
 from playwright.async_api import async_playwright
 from fastapi.middleware.cors import CORSMiddleware
 
 from prompts import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
 from portfolio_agent import get_relevant_repos
+from map_scraper import scrape_google_maps
+from auth import (
+    init_db, create_user, verify_user, create_session,
+    delete_session, get_user_by_token, update_api_key as db_update_api_key,
+)
 
-load_dotenv()
-
-app = FastAPI(title="ProposalAI")
+app = FastAPI(title="Halify.ai")
+init_db()
 
 app.add_middleware(
     CORSMiddleware,
@@ -35,8 +40,6 @@ if not os.path.exists(static_path):
     os.makedirs(static_path)
 app.mount("/static", StaticFiles(directory=static_path), name="static")
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
-
-client = openai.OpenAI(api_key=os.getenv("OPENA_API_KEY"))
 
 DEFAULT_NAME     = "Ali Hassan"
 DEFAULT_EMAIL    = "alihassanbscs99@gmail.com"
@@ -74,6 +77,82 @@ SAMPLE_CONTENT = {
 }
 
 
+# ─────────────────────────── Auth models ──────────────────────────────
+
+class RegisterRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class UpdateApiKeyRequest(BaseModel):
+    api_key: str
+
+
+def _current_user(authorization: str = Header(default=None)) -> dict:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = get_user_by_token(authorization.split(" ", 1)[1])
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    return user
+
+
+@app.post("/register")
+async def register(req: RegisterRequest):
+    if not req.name.strip() or not req.email.strip() or not req.password:
+        raise HTTPException(status_code=400, detail="All fields are required")
+    user = create_user(req.name.strip(), req.email.strip(), req.password)
+    if not user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    token = create_session(user["id"])
+    return {"token": token, "user": user}
+
+
+@app.post("/login")
+async def login(req: LoginRequest):
+    user = verify_user(req.email, req.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    token = create_session(user["id"])
+    return {
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "name": user["name"],
+            "email": user["email"],
+            "openai_api_key": user["openai_api_key"],
+        },
+    }
+
+
+@app.post("/logout")
+async def logout(authorization: str = Header(default=None)):
+    if authorization and authorization.startswith("Bearer "):
+        delete_session(authorization.split(" ", 1)[1])
+
+
+@app.get("/me")
+async def me(current_user: dict = Depends(_current_user)):
+    return {
+        "id": current_user["id"],
+        "name": current_user["name"],
+        "email": current_user["email"],
+        "openai_api_key": current_user["openai_api_key"],
+    }
+
+
+@app.post("/update-api-key")
+async def update_api_key_endpoint(req: UpdateApiKeyRequest, current_user: dict = Depends(_current_user)):
+    db_update_api_key(current_user["id"], req.api_key)
+    return {"ok": True}
+
+
+# ─────────────────────────────────────────────────────────────────────
+
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -106,10 +185,26 @@ async def generate_proposal(
     github_url:   str = Form(...),
     template:     str = Form(default="1"),
     timeline:     str = Form(default="4 weeks"),
+    authorization: str = Header(default=None),
 ):
+    # Resolve user's API key
+    api_key = ""
+    if authorization and authorization.startswith("Bearer "):
+        user = get_user_by_token(authorization.split(" ", 1)[1])
+        if user:
+            api_key = user.get("openai_api_key", "")
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="OpenAI API key not set. Open your profile in the sidebar and add your key.",
+        )
+    ai_client = openai.OpenAI(api_key=api_key)
+
     try:
-        # Fetch relevant repos using the LangChain agent
-        relevant_repos = get_relevant_repos(requirements)
+        try:
+            relevant_repos = get_relevant_repos(requirements)
+        except Exception:
+            relevant_repos = None
 
         user_prompt = USER_PROMPT_TEMPLATE.format(
             requirements=requirements,
@@ -117,7 +212,7 @@ async def generate_proposal(
             timeline=timeline,
         )
 
-        completion = client.chat.completions.create(
+        completion = ai_client.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -867,6 +962,84 @@ body {{
   <div class="pfooter"><div>{b['name']}</div><div><a href="https://wa.me/{b['phone_wa']}" style="color:inherit;text-decoration:none;font-size:9px;">&#9742; {b['phone']}</a></div></div>
 </div>
 </body></html>"""
+
+
+def _normalize_business(r: dict) -> dict:
+    return {
+        "name":     r.get("title", ""),
+        "rating":   r.get("rating", ""),
+        "reviews":  r.get("reviewCount", ""),
+        "category": r.get("industry", ""),
+        "address":  r.get("address", ""),
+        "phone":    r.get("phone", ""),
+        "website":  r.get("website", ""),
+        "email":    r.get("email", ""),
+        "maps_url": r.get("href", ""),
+    }
+
+
+@app.get("/scrape-maps/stream")
+async def scrape_maps_stream(
+    query: str = Query(...),
+    max_results: int = Query(20, ge=1, le=50),
+):
+    if not query.strip():
+        raise HTTPException(status_code=400, detail="query is required")
+
+    aq: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_event_loop()
+
+    def _run():
+        def cb(msg: str):
+            loop.call_soon_threadsafe(aq.put_nowait, {"type": "progress", "message": msg})
+        try:
+            results = scrape_google_maps(query.strip(), max_results, progress_cb=cb)
+            loop.call_soon_threadsafe(
+                aq.put_nowait,
+                {"type": "done", "results": [_normalize_business(r) for r in results]},
+            )
+        except Exception as e:
+            loop.call_soon_threadsafe(aq.put_nowait, {"type": "error", "message": str(e)})
+        finally:
+            loop.call_soon_threadsafe(aq.put_nowait, None)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+    async def event_stream():
+        while True:
+            try:
+                item = await asyncio.wait_for(aq.get(), timeout=180)
+            except asyncio.TimeoutError:
+                yield 'data: {"type":"timeout"}\n\n'
+                break
+            if item is None:
+                break
+            yield f"data: {json.dumps(item)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/scrape-maps")
+async def scrape_maps(request: Request):
+    data = await request.json()
+    query = (data.get("query") or "").strip()
+    max_results = max(1, min(int(data.get("max_results", 20)), 50))
+
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+
+    loop = asyncio.get_event_loop()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        results = await loop.run_in_executor(
+            executor, scrape_google_maps, query, max_results
+        )
+
+    normalised = [_normalize_business(r) for r in results]
+    return {"results": normalised, "count": len(normalised)}
 
 
 if __name__ == "__main__":
