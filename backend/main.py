@@ -16,6 +16,7 @@ import openai
 from fastapi.middleware.cors import CORSMiddleware
 
 from maps.scraper import scrape_google_maps
+from emailverify.verifier import verify_email_sync, _executor as _email_executor
 from proposal.agent import get_relevant_repos
 from proposal.prompts import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
 from proposal.templates import (
@@ -29,6 +30,7 @@ from auth import (
     init_db, create_user, verify_user, create_session,
     delete_session, get_user_by_token, update_api_key as db_update_api_key,
     save_history, get_history, delete_history,
+    get_preferences, save_preferences,
 )
 
 app = FastAPI(title="Halify.ai")
@@ -269,6 +271,20 @@ async def remove_history(entry_id: int, current_user: dict = Depends(_current_us
     return {"ok": True}
 
 
+# ─────────────────────────── Preferences ──────────────────────────────
+
+@app.get("/preferences")
+async def get_user_prefs(current_user: dict = Depends(_current_user)):
+    return get_preferences(current_user["id"])
+
+
+@app.post("/preferences")
+async def save_user_prefs(request: Request, current_user: dict = Depends(_current_user)):
+    data = await request.json()
+    save_preferences(current_user["id"], data)
+    return {"ok": True}
+
+
 # ─────────────────────────── Maps scraper ─────────────────────────────
 
 def _normalize_business(r: dict) -> dict:
@@ -293,7 +309,7 @@ def _normalize_business(r: dict) -> dict:
 @app.get("/scrape-maps/stream")
 async def scrape_maps_stream(
     query: str = Query(...),
-    max_results: int = Query(20, ge=1, le=50),
+    max_results: int = Query(20, ge=1),
 ):
     if not query.strip():
         raise HTTPException(status_code=400, detail="query is required")
@@ -339,7 +355,7 @@ async def scrape_maps_stream(
 async def scrape_maps(request: Request):
     data = await request.json()
     query = (data.get("query") or "").strip()
-    max_results = max(1, min(int(data.get("max_results", 20)), 50))
+    max_results = max(1, int(data.get("max_results", 20)))
 
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
@@ -352,6 +368,24 @@ async def scrape_maps(request: Request):
 
     normalised = [_normalize_business(r) for r in results]
     return {"results": normalised, "count": len(normalised)}
+
+
+# ─────────────────────────── Email Verify ────────────────────────────
+
+@app.get("/email/verify")
+async def email_verify_single(email: str = Query(...)):
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(_email_executor, verify_email_sync, email)
+    return result
+
+
+@app.post("/email/verify/bulk")
+async def email_verify_bulk(emails: list[str]):
+    emails = [e.strip() for e in emails[:200] if e.strip()]
+    loop = asyncio.get_event_loop()
+    tasks = [loop.run_in_executor(_email_executor, verify_email_sync, e) for e in emails]
+    results = await asyncio.gather(*tasks)
+    return list(results)
 
 
 if __name__ == "__main__":

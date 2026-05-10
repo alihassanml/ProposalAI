@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, MapPin, LayoutDashboard, ChevronUp, Eye, EyeOff, LogOut, Clock } from 'lucide-react';
+import { FileText, MapPin, LayoutDashboard, ChevronUp, Eye, EyeOff, LogOut, Clock, MailCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-export type TabId = 'dashboard' | 'proposal' | 'maps' | 'history';
+export type TabId = 'dashboard' | 'proposal' | 'maps' | 'history' | 'email';
 
 interface NavItem {
   id: TabId;
@@ -14,6 +14,7 @@ const NAV: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard',          icon: LayoutDashboard },
   { id: 'proposal',  label: 'Upwork Proposal',    icon: FileText },
   { id: 'maps',      label: 'Google Map Scraper', icon: MapPin },
+  { id: 'email',     label: 'Email Verify',       icon: MailCheck },
   { id: 'history',   label: 'History',            icon: Clock },
 ];
 
@@ -59,7 +60,7 @@ export default function Sidebar({ active, onChange }: SidebarProps) {
     : 'U';
 
   return (
-    <aside className="w-64 min-h-screen bg-surface-container-lowest border-r border-outline-variant flex flex-col shrink-0 relative">
+    <aside className="w-64 h-screen bg-surface-container-lowest border-r border-outline-variant flex flex-col shrink-0 relative overflow-y-auto">
       {/* Brand */}
       <div className="flex items-center gap-3 px-4 py-5 border-b border-outline-variant">
         <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center shadow-sm">

@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { FileText, MapPin, ArrowRight, Globe, Mail, Search } from 'lucide-react';
+import { FileText, MapPin, MailCheck, ArrowRight, Globe, Mail, Search } from 'lucide-react';
 import type { TabId } from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
 
@@ -32,8 +32,18 @@ const PRODUCTS: Product[] = [
     title: 'Google Maps',
     titleAccent: 'Scraper',
     description: 'Extract business name, phone, website, address, and ratings from Google Maps search results. Export everything to CSV with one click.',
-    badges: ['Playwright', 'CSV Export', 'Phone + Website', '50 results'],
+    badges: ['Playwright', 'CSV Export', 'Phone + Website', 'No Limit'],
     cta: 'Open Scraper',
+  },
+  {
+    id: 'email',
+    icon: MailCheck,
+    tag: 'Verifier',
+    title: 'Email',
+    titleAccent: 'Verifier',
+    description: 'Validate email addresses with syntax checks, MX record lookups, SMTP handshakes, disposable domain detection, and role account flagging.',
+    badges: ['SMTP Check', 'MX Records', 'CSV / Excel', 'No API Key'],
+    cta: 'Verify Emails',
   },
 ];
 

@@ -1,6 +1,7 @@
 import sqlite3
 import hashlib
 import secrets
+import json
 import os
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "halify.db")
@@ -14,6 +15,11 @@ def get_conn():
 
 def init_db():
     with get_conn() as conn:
+        # migrate: add preferences column if missing
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN preferences TEXT DEFAULT '{}'")
+        except Exception:
+            pass
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -143,3 +149,21 @@ def delete_history(entry_id: int, user_id: int) -> bool:
             "DELETE FROM history WHERE id=? AND user_id=?", (entry_id, user_id)
         )
     return cur.rowcount > 0
+
+
+# ── User preferences ──────────────────────────────────────────────────
+
+def get_preferences(user_id: int) -> dict:
+    with get_conn() as conn:
+        row = conn.execute("SELECT preferences FROM users WHERE id=?", (user_id,)).fetchone()
+    if not row or not row["preferences"]:
+        return {}
+    try:
+        return json.loads(row["preferences"])
+    except Exception:
+        return {}
+
+
+def save_preferences(user_id: int, prefs: dict):
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET preferences=? WHERE id=?", (json.dumps(prefs), user_id))

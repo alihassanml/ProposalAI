@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ScraperProvider } from './context/ScraperContext';
 import Sidebar from './components/Sidebar';
 import type { TabId } from './components/Sidebar';
 import DashboardPage from './pages/DashboardPage';
 import ProposalPage from './pages/ProposalPage';
 import MapScraperPage from './pages/MapScraperPage';
 import HistoryPage from './pages/HistoryPage';
+import EmailVerifyPage from './pages/EmailVerifyPage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 
@@ -39,12 +41,13 @@ function AppInner() {
   }
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar active={activeTab} onChange={handleTabChange} />
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-y-auto">
         {activeTab === 'dashboard' && <DashboardPage onNavigate={handleTabChange} />}
         {activeTab === 'proposal'  && <ProposalPage />}
         {activeTab === 'maps'      && <MapScraperPage />}
+        {activeTab === 'email'     && <EmailVerifyPage />}
         {activeTab === 'history'   && <HistoryPage />}
       </div>
     </div>
@@ -54,7 +57,9 @@ function AppInner() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppInner />
+      <ScraperProvider>
+        <AppInner />
+      </ScraperProvider>
     </AuthProvider>
   );
 }
