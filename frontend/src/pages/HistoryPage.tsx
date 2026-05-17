@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
   MapPin, FileText, Trash2, Clock, Download,
-  MailCheck, ArrowLeft, ChevronRight,
+  MailCheck, Globe, ArrowLeft, ChevronRight,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
@@ -11,7 +11,7 @@ const API_BASE_URL = 'http://localhost:8000';
 
 interface HistoryEntry {
   id: number;
-  type: 'maps' | 'proposal' | 'email';
+  type: 'maps' | 'proposal' | 'email' | 'domain';
   title: string;
   summary: string;
   data: string;
@@ -49,15 +49,16 @@ function ActivityChart({ entries }: { entries: HistoryEntry[] }) {
     const maps     = entries.filter(e => e.type === 'maps'     && e.created_at.slice(0, 10) === dateStr).length;
     const proposal = entries.filter(e => e.type === 'proposal' && e.created_at.slice(0, 10) === dateStr).length;
     const email    = entries.filter(e => e.type === 'email'    && e.created_at.slice(0, 10) === dateStr).length;
-    return { label: day.toLocaleDateString('en', { weekday: 'short' }), maps, proposal, email };
+    const domain   = entries.filter(e => e.type === 'domain'   && e.created_at.slice(0, 10) === dateStr).length;
+    return { label: day.toLocaleDateString('en', { weekday: 'short' }), maps, proposal, email, domain };
   });
 
-  const maxVal = Math.max(...data.map(d => d.maps + d.proposal + d.email), 1);
+  const maxVal = Math.max(...data.map(d => d.maps + d.proposal + d.email + d.domain), 1);
 
   return (
     <div className="flex items-end gap-2 h-14">
       {data.map((d, i) => {
-        const total = d.maps + d.proposal + d.email;
+        const total = d.maps + d.proposal + d.email + d.domain;
         const barH  = total > 0 ? Math.max((total / maxVal) * 44, 6) : 2;
         const isToday = i === 6;
         return (
@@ -68,6 +69,7 @@ function ActivityChart({ entries }: { entries: HistoryEntry[] }) {
                   {d.maps > 0     && <div className="w-full bg-secondary/70"    style={{ height: `${(d.maps     / total) * 100}%` }} />}
                   {d.proposal > 0 && <div className="w-full bg-primary/60"      style={{ height: `${(d.proposal / total) * 100}%` }} />}
                   {d.email > 0    && <div className="w-full bg-emerald-400/70"  style={{ height: `${(d.email    / total) * 100}%` }} />}
+                  {d.domain > 0   && <div className="w-full bg-violet-400/70"   style={{ height: `${(d.domain   / total) * 100}%` }} />}
                 </div>
               ) : (
                 <div className="w-full rounded bg-outline-variant/30" style={{ height: 2 }} />
@@ -89,6 +91,7 @@ const TYPE_META = {
   maps:     { icon: MapPin,    color: 'bg-secondary/10',  iconColor: 'text-secondary',   tag: 'Maps',     tagCls: 'bg-secondary/10 text-secondary border-secondary/20'     },
   proposal: { icon: FileText,  color: 'bg-primary/10',    iconColor: 'text-primary',     tag: 'Proposal', tagCls: 'bg-primary/10 text-primary border-primary/20'           },
   email:    { icon: MailCheck, color: 'bg-emerald-50',    iconColor: 'text-emerald-600', tag: 'Email',    tagCls: 'bg-emerald-50 text-emerald-700 border-emerald-200'      },
+  domain:   { icon: Globe,     color: 'bg-violet-50',     iconColor: 'text-violet-600',  tag: 'Domain',   tagCls: 'bg-violet-50 text-violet-700 border-violet-200'          },
 } as const;
 
 function GridCard({
@@ -288,6 +291,68 @@ function EmailDetail({ entry }: { entry: HistoryEntry }) {
   );
 }
 
+function DomainDetail({ entry }: { entry: HistoryEntry }) {
+  const data = JSON.parse(entry.data || '{}');
+  const results: any[] = data.results || [];
+
+  const confColor: Record<string, string> = {
+    high: 'text-emerald-600', medium: 'text-amber-500', low: 'text-red-500',
+  };
+
+  const exportCSV = () => {
+    const headers = ['Company', 'Domain', 'Confidence', 'Reason'];
+    const rows = results.map((r: any) => [r.company_name, r.company_domain, r.confidence, r.reason]);
+    const csv = [headers, ...rows]
+      .map(row => row.map((c: any) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = `domains_${entry.id}.csv`; a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-xs text-on-surface-variant">{results.length} companies looked up</p>
+        <button onClick={exportCSV}
+          className="flex items-center gap-2 px-3 py-1.5 border border-outline-variant bg-white hover:bg-surface-container-low text-on-surface rounded-xl text-xs font-semibold transition-colors">
+          <Download size={13} /> Export CSV
+        </button>
+      </div>
+      <div className="border border-outline-variant rounded-2xl overflow-hidden">
+        <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-surface-container-low z-10">
+              <tr>
+                {['#', 'Company', 'Domain', 'Confidence', 'Reason'].map(h => (
+                  <th key={h} className="text-left px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant whitespace-nowrap border-b border-outline-variant">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {results.map((r: any, i: number) => (
+                <tr key={i} className="border-b border-outline-variant/40 hover:bg-surface-container-low">
+                  <td className="px-3 py-2.5 text-outline font-bold">{i + 1}</td>
+                  <td className="px-3 py-2.5 font-semibold text-on-surface">{r.company_name}</td>
+                  <td className="px-3 py-2.5">
+                    {r.company_domain
+                      ? <a href={`https://${r.company_domain}`} target="_blank" rel="noreferrer"
+                          className="text-primary hover:underline font-mono">{r.company_domain}</a>
+                      : <span className="text-outline">—</span>}
+                  </td>
+                  <td className={`px-3 py-2.5 font-semibold capitalize ${confColor[r.confidence] || ''}`}>{r.confidence}</td>
+                  <td className="px-3 py-2.5 text-on-surface-variant max-w-[260px] truncate">{r.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProposalDetail({ entry }: { entry: HistoryEntry }) {
   const data = JSON.parse(entry.data || '{}');
   const templateNames: Record<string, string> = { '1': 'Dark Executive', '2': 'Corporate Pro', '3': 'Bold Slate' };
@@ -357,6 +422,7 @@ function DetailPage({ entry, onBack }: { entry: HistoryEntry; onBack: () => void
         {/* Content */}
         {entry.type === 'maps'     && <MapsDetail     entry={entry} />}
         {entry.type === 'email'    && <EmailDetail    entry={entry} />}
+        {entry.type === 'domain'   && <DomainDetail   entry={entry} />}
         {entry.type === 'proposal' && <ProposalDetail entry={entry} />}
       </div>
     </motion.div>
@@ -395,6 +461,7 @@ export default function HistoryPage() {
   const maps     = entries.filter(e => e.type === 'maps');
   const proposals = entries.filter(e => e.type === 'proposal');
   const emails   = entries.filter(e => e.type === 'email');
+  const domains  = entries.filter(e => e.type === 'domain');
   const lastEntry = entries[0];
 
   const totalLeads = maps.reduce((sum, e) => {
@@ -500,6 +567,7 @@ export default function HistoryPage() {
                     <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-secondary/70" /> Maps</span>
                     <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-primary/60" /> Proposals</span>
                     <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-emerald-400/70" /> Email</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-violet-400/70" /> Domain</span>
                   </div>
                 </div>
                 <ActivityChart entries={entries} />

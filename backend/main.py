@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from maps.scraper import scrape_google_maps
 from emailverify.verifier import verify_email_sync, _executor as _email_executor
+from domainfinder.finder import find_domain_for
 from proposal.agent import get_relevant_repos
 from proposal.prompts import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
 from proposal.templates import (
@@ -164,10 +165,13 @@ async def generate_proposal(
     authorization: str = Header(default=None),
 ):
     api_key = ""
+    selected_model = "gpt-4o-mini"
     if authorization and authorization.startswith("Bearer "):
         user = get_user_by_token(authorization.split(" ", 1)[1])
         if user:
             api_key = user.get("openai_api_key", "")
+            prefs = get_preferences(user["id"])
+            selected_model = prefs.get("model", "gpt-4o-mini")
     if not api_key:
         raise HTTPException(
             status_code=400,
@@ -177,7 +181,7 @@ async def generate_proposal(
 
     try:
         try:
-            relevant_repos = get_relevant_repos(requirements)
+            relevant_repos = get_relevant_repos(requirements, api_key, selected_model)
         except Exception:
             relevant_repos = None
 
@@ -188,7 +192,7 @@ async def generate_proposal(
         )
 
         completion = ai_client.chat.completions.create(
-            model="gpt-4o",
+            model=selected_model,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user",   "content": user_prompt},
@@ -385,6 +389,56 @@ async def email_verify_bulk(emails: list[str]):
     loop = asyncio.get_event_loop()
     tasks = [loop.run_in_executor(_email_executor, verify_email_sync, e) for e in emails]
     results = await asyncio.gather(*tasks)
+    return list(results)
+
+
+# ─────────────────────────── Domain Finder ────────────────────────────
+
+class DomainRequest(BaseModel):
+    company_name: str
+
+class DomainBulkRequest(BaseModel):
+    companies: list[str]
+
+
+def _require_api_key(authorization: str = Header(default=None)) -> str:
+    if authorization and authorization.startswith("Bearer "):
+        user = get_user_by_token(authorization.split(" ", 1)[1])
+        if user and user.get("openai_api_key"):
+            return user["openai_api_key"]
+    raise HTTPException(
+        status_code=400,
+        detail="OpenAI API key not set. Open your profile in the sidebar and add your key.",
+    )
+
+
+@app.post("/find-domain")
+async def find_domain_single(
+    req: DomainRequest,
+    api_key: str = Depends(_require_api_key),
+    current_user: dict = Depends(_current_user),
+):
+    if not req.company_name.strip():
+        raise HTTPException(status_code=400, detail="company_name cannot be empty")
+    prefs = get_preferences(current_user["id"])
+    model = prefs.get("model", "gpt-4o-mini")
+    result = await find_domain_for(req.company_name, api_key, model)
+    return result
+
+
+@app.post("/find-domain/bulk")
+async def find_domain_bulk(
+    req: DomainBulkRequest,
+    api_key: str = Depends(_require_api_key),
+    current_user: dict = Depends(_current_user),
+):
+    companies = [c.strip() for c in req.companies[:30] if c.strip()]
+    if not companies:
+        raise HTTPException(status_code=400, detail="No company names provided")
+    prefs = get_preferences(current_user["id"])
+    model = prefs.get("model", "gpt-4o-mini")
+    import asyncio as _asyncio
+    results = await _asyncio.gather(*[find_domain_for(c, api_key, model) for c in companies])
     return list(results)
 
 

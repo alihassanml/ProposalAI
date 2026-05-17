@@ -1,62 +1,56 @@
-import os
+import json
 import requests
-from typing import List, Dict
-from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel, Field
+from openai import OpenAI
 
-class PortfolioRepo(BaseModel):
-    name: str = Field(description="The name of the GitHub repository")
-    summary: str = Field(description="A 1-2 sentence summary of why this repo is relevant to the project and what it does.")
 
-class PortfolioSelection(BaseModel):
-    repos: List[PortfolioRepo] = Field(description="List of the 2 most relevant repositories")
-
-def get_relevant_repos(requirements: str) -> List[Dict]:
-    username = "alihassanml"
-    url = f"https://api.github.com/users/{username}/repos?per_page=100&sort=updated"
-
+def get_relevant_repos(requirements: str, api_key: str = "", model: str = "gpt-4o-mini") -> list:
     try:
-        response = requests.get(url)
-        all_repos = response.json()
+        url = "https://api.github.com/users/alihassanml/repos?per_page=100&sort=updated"
+        all_repos = requests.get(url, timeout=10).json()
 
-        repo_data = []
-        for r in all_repos:
-            if not r.get('fork'):
-                repo_data.append({
-                    "name": r.get('name'),
-                    "description": r.get('description', 'No description'),
-                    "topics": r.get('topics', []),
-                    "language": r.get('language', 'Unknown')
-                })
+        repo_data = [
+            {
+                "name":        r.get("name"),
+                "description": r.get("description") or "No description",
+                "topics":      r.get("topics", []),
+                "language":    r.get("language") or "Unknown",
+            }
+            for r in all_repos
+            if not r.get("fork")
+        ]
 
-        llm = ChatGroq(
-            model="llama-3.3-70b-versatile",
+        if not repo_data or not api_key:
+            return []
+
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model=model,
             temperature=0,
-            groq_api_key=os.getenv("GROQ_API_KEY")
+            max_tokens=400,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a technical portfolio expert. "
+                        "Select the 2 most relevant GitHub repositories from the list based on the job requirements. "
+                        "Respond ONLY with JSON: "
+                        '{"repos": [{"name": "repo-name", "summary": "why it is relevant"}, ...]}'
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"JOB REQUIREMENTS:\n{requirements}\n\n"
+                        f"MY REPOSITORIES:\n{json.dumps(repo_data[:50], indent=2)}\n\n"
+                        "Select the 2 best matches."
+                    ),
+                },
+            ],
         )
 
-        structured_llm = llm.with_structured_output(PortfolioSelection)
-
-        system = (
-            "You are a technical portfolio expert. Your goal is to select the 2 most relevant "
-            "GitHub repositories from a list based on a job's requirements. "
-            "For each selected repo, provide a concise, high-impact summary of its relevance."
-        )
-
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", system),
-            ("human", "JOB REQUIREMENTS:\n{requirements}\n\nMY REPOSITORIES:\n{repos}\n\nSelect the 2 best matches and explain why.")
-        ])
-
-        chain = prompt | structured_llm
-
-        result = chain.invoke({
-            "requirements": requirements,
-            "repos": str(repo_data[:50])
-        })
-
-        return [repo.model_dump() for repo in result.repos]
+        data = json.loads(response.choices[0].message.content)
+        return data.get("repos", [])
 
     except Exception:
         return []

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
   FileText, Download, Eye, CircleCheck, LoaderCircle,
-  Layout, ArrowLeft, X
+  Layout, ArrowLeft, X, RotateCcw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
@@ -121,10 +121,13 @@ export default function ProposalPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 px-3 py-1 border border-outline-variant rounded-full text-[10px] text-on-surface-variant font-medium">
-              <div className={`w-1.5 h-1.5 rounded-full ${isRendering ? 'bg-amber-500 animate-pulse' : 'bg-secondary'}`} />
-              {isRendering ? 'Rendering…' : 'Live'}
-            </div>
+            <button
+              onClick={() => setEditorMode(false)}
+              className="flex items-center gap-2 px-4 py-2 border border-outline-variant hover:bg-surface-container-low text-on-surface rounded-xl text-sm font-semibold transition-colors"
+            >
+              <RotateCcw size={16} />
+              Regenerate
+            </button>
             <button
               onClick={handleDownload}
               disabled={loading}

@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, MapPin, LayoutDashboard, ChevronUp, Eye, EyeOff, LogOut, Clock, MailCheck } from 'lucide-react';
+import axios from 'axios';
+import { FileText, MapPin, LayoutDashboard, ChevronUp, Eye, EyeOff, LogOut, Clock, MailCheck, Globe, Cpu } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-export type TabId = 'dashboard' | 'proposal' | 'maps' | 'history' | 'email';
+const API_BASE_URL = 'http://localhost:8000';
+
+export type TabId = 'dashboard' | 'proposal' | 'maps' | 'history' | 'email' | 'domain';
 
 interface NavItem {
   id: TabId;
@@ -15,7 +18,15 @@ const NAV: NavItem[] = [
   { id: 'proposal',  label: 'Upwork Proposal',    icon: FileText },
   { id: 'maps',      label: 'Google Map Scraper', icon: MapPin },
   { id: 'email',     label: 'Email Verify',       icon: MailCheck },
+  { id: 'domain',    label: 'Domain Finder',      icon: Globe },
   { id: 'history',   label: 'History',            icon: Clock },
+];
+
+const MODELS = [
+  { id: 'gpt-4o-mini', label: 'GPT-4o mini',  desc: 'Fast · Cheap'         },
+  { id: 'gpt-4o',      label: 'GPT-4o',        desc: 'Powerful · Balanced'  },
+  { id: 'gpt-4.1-mini',label: 'GPT-4.1 mini',  desc: 'Latest Fast'          },
+  { id: 'gpt-4.1',     label: 'GPT-4.1',       desc: 'Latest & Best'        },
 ];
 
 interface SidebarProps {
@@ -24,17 +35,29 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ active, onChange }: SidebarProps) {
-  const { user, logout, updateApiKey } = useAuth();
+  const { user, token, logout, updateApiKey } = useAuth();
   const [showProfile, setShowProfile] = useState(false);
   const [apiKey, setApiKey]           = useState(user?.openai_api_key || '');
   const [showKey, setShowKey]         = useState(false);
   const [saving, setSaving]           = useState(false);
   const [saved, setSaved]             = useState(false);
+  const [model, setModel]             = useState('gpt-4o-mini');
+  const [modelSaved, setModelSaved]   = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setApiKey(user?.openai_api_key || '');
   }, [user?.openai_api_key]);
+
+  // Load model preference from backend on open
+  useEffect(() => {
+    if (!showProfile || !token) return;
+    axios.get(`${API_BASE_URL}/preferences`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(res => {
+      if (res.data?.model) setModel(res.data.model);
+    }).catch(() => {});
+  }, [showProfile, token]);
 
   useEffect(() => {
     if (!showProfile) return;
@@ -55,9 +78,23 @@ export default function Sidebar({ active, onChange }: SidebarProps) {
     setTimeout(() => setSaved(false), 2000);
   };
 
+  const handleModelChange = async (newModel: string) => {
+    setModel(newModel);
+    try {
+      await axios.post(`${API_BASE_URL}/preferences`,
+        { model: newModel },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setModelSaved(true);
+      setTimeout(() => setModelSaved(false), 1500);
+    } catch { /* non-critical */ }
+  };
+
   const initials = user?.name
-    ? user.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
+    ? user.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()
     : 'U';
+
+  const currentModel = MODELS.find(m => m.id === model);
 
   return (
     <aside className="w-64 h-screen bg-surface-container-lowest border-r border-outline-variant flex flex-col shrink-0 relative overflow-y-auto">
@@ -98,6 +135,15 @@ export default function Sidebar({ active, onChange }: SidebarProps) {
         })}
       </nav>
 
+      {/* Active model chip — always visible at bottom of nav */}
+      <div className="px-4 py-2">
+        <div className="flex items-center gap-1.5 text-[10px] text-on-surface-variant">
+          <Cpu size={10} className="text-secondary shrink-0" />
+          <span className="font-semibold text-secondary">{currentModel?.label || model}</span>
+          <span className="text-outline">· {currentModel?.desc}</span>
+        </div>
+      </div>
+
       {/* Profile panel (popover) */}
       {showProfile && (
         <div
@@ -109,6 +155,37 @@ export default function Sidebar({ active, onChange }: SidebarProps) {
             <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wide mb-1.5">Profile</p>
             <p className="text-sm font-semibold text-on-surface">{user?.name}</p>
             <p className="text-xs text-on-surface-variant">{user?.email}</p>
+          </div>
+
+          {/* AI Model selector */}
+          <div className="mb-4 pb-4 border-b border-outline-variant">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wide flex items-center gap-1">
+                <Cpu size={10} /> AI Model
+              </label>
+              {modelSaved && (
+                <span className="text-[10px] font-semibold text-secondary">Saved!</span>
+              )}
+            </div>
+            <div className="space-y-1">
+              {MODELS.map(m => (
+                <button
+                  key={m.id}
+                  onClick={() => handleModelChange(m.id)}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-all ${
+                    model === m.id
+                      ? 'bg-secondary/10 border border-secondary/30'
+                      : 'hover:bg-surface-container-low border border-transparent'
+                  }`}
+                >
+                  <span className={`text-xs font-semibold ${model === m.id ? 'text-secondary' : 'text-on-surface'}`}>
+                    {m.label}
+                  </span>
+                  <span className="text-[10px] text-on-surface-variant">{m.desc}</span>
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-outline mt-2">Used for proposals and domain finder.</p>
           </div>
 
           {/* API key */}

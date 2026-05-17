@@ -156,7 +156,10 @@ def _split_title(title: str, accent_color: str) -> str:
 def _template_dark_executive(content: dict, b: dict) -> str:
     steps      = _steps_html_exec(content.get("implementation_plan", []))
     challenges = _challenges_html_exec(content.get("challenges", []))
-    q_items    = "".join(f'<div class="q-item"><span class="q-mark">?</span>{q}</div>' for q in content.get("questions", []))
+    questions  = content.get("questions", [])
+    if isinstance(questions, str):
+        questions = [questions] if questions else []
+    q_items    = "".join(f'<div class="q-item"><span class="q-mark">?</span>{q}</div>' for q in questions)
     title      = _split_title(content.get("title", "Professional Proposal"), "#2dd4bf")
     port_items = "".join([
         f'<div class="step-item">'
@@ -253,7 +256,7 @@ body {{
 .stitle{{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.14em;
     color:#334155;margin:30px 0 14px;display:flex;align-items:center;gap:12px;}}
 .stitle::after{{content:'';flex:1;height:1px;background:#e2e8f0;}}
-.txt{{font-size:13px;color:#475569;margin-bottom:16px;text-align:justify;line-height:1.75;}}
+.txt{{font-size:13px;color:#475569;margin-bottom:16px;line-height:1.75;}}
 .txt.bold{{font-weight:600;color:#1e293b;}}
 .step-item{{margin-bottom:14px;padding:14px 16px 14px 18px;
     border-left:3px solid #2dd4bf;background:#f8fafc;}}
@@ -329,7 +332,10 @@ body {{
 def _template_corporate(content: dict, b: dict) -> str:
     steps      = _steps_html_corp(content.get("implementation_plan", []))
     challenges = _challenges_html_corp(content.get("challenges", []))
-    q_items    = "".join(f'<div class="q-item"><span class="qb"></span>{q}</div>' for q in content.get("questions", []))
+    questions  = content.get("questions", [])
+    if isinstance(questions, str):
+        questions = [questions] if questions else []
+    q_items    = "".join(f'<div class="q-item"><span class="qb"></span>{q}</div>' for q in questions)
     title      = _split_title(content.get("title", "Professional Proposal"), "#0ea5e9")
     port_items = "".join([
         f'<div class="step-item">'
@@ -421,7 +427,7 @@ body {{
 .stitle{{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.16em;
     color:#0ea5e9;margin:28px 0 14px;display:flex;align-items:center;gap:10px;}}
 .stitle::after{{content:'';flex:1;height:1px;background:#e2e8f0;}}
-.txt{{font-size:13px;color:#475569;margin-bottom:16px;line-height:1.75;text-align:justify;}}
+.txt{{font-size:13px;color:#475569;margin-bottom:16px;line-height:1.75;}}
 .txt.lead{{font-weight:500;color:#334155;font-size:13.5px;}}
 .step-item{{display:flex;gap:14px;margin-bottom:12px;padding:14px;
     background:#f8fafc;border:1px solid #f1f5f9;border-left:3px solid #0ea5e9;}}
@@ -501,7 +507,10 @@ body {{
 def _template_bold_slate(content: dict, b: dict) -> str:
     steps      = _steps_html_slate(content.get("implementation_plan", []))
     challenges = _challenges_html_slate(content.get("challenges", []))
-    q_items    = "".join(f'<li class="q-item">{q}</li>' for q in content.get("questions", []))
+    questions  = content.get("questions", [])
+    if isinstance(questions, str):
+        questions = [questions] if questions else []
+    q_items    = "".join(f'<li class="q-item">{q}</li>' for q in questions)
     title      = _split_title(content.get("title", "Professional Proposal"), "#f59e0b")
     port_items = "".join([
         f'<div class="step-item">'
@@ -594,7 +603,7 @@ body {{
 .stitle{{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.18em;
     color:#d97706;margin:28px 0 12px;display:flex;align-items:center;gap:10px;}}
 .stitle::after{{content:'';flex:1;height:1px;background:#f1f5f9;}}
-.txt{{font-size:13px;color:#475569;margin-bottom:16px;line-height:1.75;text-align:justify;}}
+.txt{{font-size:13px;color:#475569;margin-bottom:16px;line-height:1.75;}}
 .txt.lead{{font-weight:600;color:#1e293b;}}
 .step-item{{display:flex;gap:14px;margin-bottom:12px;padding:14px 16px;
     border:1px solid #fef3c7;border-left:3px solid #f59e0b;background:#fffbeb;}}

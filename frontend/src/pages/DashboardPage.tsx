@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { FileText, MapPin, MailCheck, ArrowRight, Globe, Mail, Search } from 'lucide-react';
+import { FileText, MapPin, MailCheck, Globe, ArrowRight, Mail, Search } from 'lucide-react';
 import type { TabId } from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
 
@@ -44,6 +44,16 @@ const PRODUCTS: Product[] = [
     description: 'Validate email addresses with syntax checks, MX record lookups, SMTP handshakes, disposable domain detection, and role account flagging.',
     badges: ['SMTP Check', 'MX Records', 'CSV / Excel', 'No API Key'],
     cta: 'Verify Emails',
+  },
+  {
+    id: 'domain',
+    icon: Globe,
+    tag: 'Finder',
+    title: 'Domain',
+    titleAccent: 'Finder',
+    description: 'Find official company websites using DuckDuckGo search + GPT-4o-mini. Upload a CSV or Excel file to look up hundreds of companies in bulk.',
+    badges: ['DuckDuckGo', 'GPT-4o-mini', 'CSV / Excel', 'Bulk Lookup'],
+    cta: 'Find Domains',
   },
 ];
 

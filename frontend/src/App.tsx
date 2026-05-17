@@ -8,6 +8,7 @@ import ProposalPage from './pages/ProposalPage';
 import MapScraperPage from './pages/MapScraperPage';
 import HistoryPage from './pages/HistoryPage';
 import EmailVerifyPage from './pages/EmailVerifyPage';
+import DomainFinderPage from './pages/DomainFinderPage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 
@@ -48,6 +49,7 @@ function AppInner() {
         {activeTab === 'proposal'  && <ProposalPage />}
         {activeTab === 'maps'      && <MapScraperPage />}
         {activeTab === 'email'     && <EmailVerifyPage />}
+        {activeTab === 'domain'    && <DomainFinderPage />}
         {activeTab === 'history'   && <HistoryPage />}
       </div>
     </div>
